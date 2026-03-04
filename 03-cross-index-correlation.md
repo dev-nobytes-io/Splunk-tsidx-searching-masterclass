@@ -1,5 +1,5 @@
 # Module 03 — Cross-Index Correlation
-## Joining corelight + wineventlog + sysmon Efficiently
+## Joining corelight + wineventlog + sysmon Efficiently with Distributable First-Pass Filtering
 
 ---
 
@@ -451,6 +451,73 @@ index=corelight sourcetype=bro_smb_files earliest=-1h
 | eval drift_adjusted_time = strftime(time_bucket, "%Y-%m-%d %H:%M:%S")
 | table drift_adjusted_time src_ip smb_file_opens win_share_access files_accessed shares
 ```
+
+---
+
+## 3.11 Distributable First-Pass for Cross-Index Correlation
+
+When correlating across indexes, each sub-search (inside `append` or `union`) runs independently and **can be fully distributable** up to its own split point. Structure each leg to do maximum work on indexers before results merge.
+
+```
+CROSS-INDEX CORRELATION EFFICIENCY PATTERN:
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+Each append/union leg:
+  1. Index filter         ← indexer-side, free via bloom filter
+  2. eval normalization   ← distributable, runs on each indexer
+  3. where filter         ← distributable, eliminates rows early
+  4. CSV lookup           ← distributable, enriches before transfer
+  5. fields trim          ← distributable, reduces wire size
+
+Then at merge point (search head):
+  6. stats / join         ← non-distributable, on small merged set
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+```
+
+```splunk
+| Comment "Distributable-first three-index correlation template"
+| Comment "Each leg does maximum work on indexers; merge is on tiny result sets"
+
+index=corelight sourcetype=bro_ntlm earliest=-1h
+| Comment "--- Leg 1 distributable tier ---"
+| eval src   = id.orig_h
+| eval user  = username
+| eval auth  = if(status="NTLMSSP_AUTH", "success", "failure")
+| eval layer = "network"
+| lookup asset_inventory.csv src OUTPUT asset_type
+| where auth="failure"
+| fields _time src user auth layer asset_type
+
+| append [
+    search index=wineventlog EventCode=4625 earliest=-1h
+    | Comment "--- Leg 2 distributable tier ---"
+    | eval src   = IpAddress
+    | eval user  = AccountName
+    | eval auth  = "failure"
+    | eval layer = "windows"
+    | lookup asset_inventory.csv src OUTPUT asset_type
+    | where NOT match(user, "^.*\$$") AND src NOT IN ("-","::1")
+    | fields _time src user auth layer asset_type
+]
+
+| append [
+    search index=sysmon EventCode=3 earliest=-1h
+        NOT DestinationIp IN ("10.0.0.0/8","172.16.0.0/12","192.168.0.0/16")
+    | Comment "--- Leg 3 distributable tier ---"
+    | eval src   = SourceIp
+    | eval user  = User
+    | eval auth  = "network_connect"
+    | eval layer = "endpoint"
+    | lookup asset_inventory.csv src OUTPUT asset_type
+    | fields _time src user auth layer asset_type
+]
+
+| Comment "=== All three legs merged on search head — now a small dataset ==="
+| stats count dc(layer) as sources_corroborated values(layer) as layers by src user
+| where sources_corroborated >= 2
+| sort -sources_corroborated
+```
+
+> For the complete streaming and distributable command reference covering all attack stages, see [Module 10](./10-streaming-and-distributable-commands.md).
 
 ---
 

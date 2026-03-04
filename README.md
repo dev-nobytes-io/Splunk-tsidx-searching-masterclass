@@ -31,6 +31,7 @@
 | [07](./07-data-quality-and-normalization.md) | **Data Quality & Normalization** | Null fields, format drift, multiline events, deduplication |
 | [08](./08-advanced-detection-engineering.md) | **Advanced Detection Engineering** | Baselining, ML primitives, rare(), streamstats, event sequencing |
 | [09](./09-performance-reference-card.md) | **Performance Reference Card** | Quick-reference: command costs, anti-patterns, cheat sheet |
+| [10](./10-streaming-and-distributable-commands.md) | **Streaming & Distributable Commands** | Push work to indexers, split-point architecture, per-attack-stage patterns |
 
 ---
 
@@ -38,16 +39,17 @@
 
 ```
 EFFICIENCY HIERARCHY (fastest → slowest)
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-1. Index-time filtering  (index=, sourcetype=, host=, _time)
-2. Bloom filter hits     (raw keyword search before pipe)
-3. TSIDX lookup          (indexed fields via tstats)
-4. Bucket scanning       (rawdata, field extractions)
-5. Search-time eval      (computed fields, rex, lookup)
-6. Aggregation           (stats, chart, timechart)
-7. Sub-searches          ([ search ... ])
-8. Joins                 (join, append, appendcols)
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+1. Index-time filtering      (index=, sourcetype=, host=, _time)
+2. Bloom filter hits         (raw keyword search before pipe)
+3. TSIDX lookup              (indexed fields via tstats / prestats)
+4. Distributable streaming   (eval, where, fields, CSV lookup — on indexers)
+5. Bucket scanning           (rawdata, field extractions)
+6. Centralized streaming     (streamstats, eventstats — search head only)
+7. Aggregation               (stats, chart, timechart — search head only)
+8. Sub-searches              ([ search ... ])
+9. Joins                     (join, append, appendcols)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 ```
 
 ---

@@ -1,5 +1,5 @@
 # Module 02 — Search Optimization Fundamentals
-## Bloom Filters, TSIDX, Search Order & Eval vs Field Extraction
+## Bloom Filters, TSIDX, Search Order, Eval vs Field Extraction & Streaming Command Placement
 
 ---
 
@@ -417,6 +417,49 @@ index=wineventlog EventCode=4625 earliest=-2h
 | where delta > 20
 | sort -delta
 ```
+
+---
+
+## 2.12 Streaming Command Placement — The Distributable Split Point
+
+Every pipeline has a **split point**: the first non-distributable command. Everything before it runs on indexers; everything after runs on the search head. Place the split point as late as possible.
+
+```
+DISTRIBUTABLE (run on indexers)       NON-DISTRIBUTABLE (search head only)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+eval, where, fields, rename           stats, chart, timechart, top, rare
+rex, regex, replace, convert          sort (full — needed before streamstats)
+lookup (CSV files only)               transaction
+fillnull, makemv, nomv, extract       join, dedup (with sortby)
+head (before transforming cmd)        eventstats, streamstats
+bucket, spath                         anomalydetection
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+```
+
+### Confirming the Split Point at Runtime
+
+```splunk
+| Comment "Use job inspector to see where commands ran"
+| Comment "After running a search: Job > Inspect Job > Search job properties"
+| Comment "Look for 'remote' vs 'local' command dispatch in the execution plan"
+| Comment "Alternatively, add 'debug=true' to tstats to see prestats distribution"
+
+| Comment "Pattern: Maximize indexer work, minimize SH work"
+index=wineventlog EventCode=4625 earliest=-1h
+
+| Comment "--- INDEXER TIER (distributable) ---"
+| eval src = coalesce(IpAddress, "UNKNOWN")                    | Comment "eval: distributable"
+| where src != "UNKNOWN" AND src != "::1"                      | Comment "where: distributable"
+| lookup asset_inventory.csv src OUTPUT asset_type             | Comment "CSV lookup: distributable"
+| fields _time src AccountName ComputerName asset_type         | Comment "fields: distributable"
+
+| Comment "--- SEARCH HEAD TIER (non-distributable) ---"
+| stats count dc(AccountName) as accounts by src asset_type    | Comment "stats: SH only"
+| where count > 20                                             | Comment "where post-stats: SH"
+| sort -count                                                  | Comment "sort: SH only"
+```
+
+> For a full deep-dive on streaming and distributable command architecture across all attack stages, see [Module 10 — Streaming & Distributable Commands](./10-streaming-and-distributable-commands.md).
 
 ---
 

@@ -574,4 +574,35 @@ THE 12 COMMANDMENTS OF SPLUNK AT SCALE
 
 ---
 
-[← Advanced Detection Engineering](./08-advanced-detection-engineering.md) | [← Back to Index](./README.md)
+## 9.13 Streaming & Distributable Command Quick Reference
+
+| Command | Tier | Runs On | Notes |
+|---|---|---|---|
+| `eval` | Distributable streaming | Indexers | Always push before `stats` |
+| `where` | Distributable streaming | Indexers | Most impactful filter to move early |
+| `fields` | Distributable streaming | Indexers | Trim immediately after index filter |
+| `rex` | Distributable streaming | Indexers | Per-event regex on each indexer |
+| `rename` / `replace` | Distributable streaming | Indexers | Field/value aliasing on indexers |
+| `lookup` (CSV) | Distributable streaming | Indexers | CSV copied to each indexer |
+| `lookup` (KV Store) | Centralized streaming | Search Head | Put post-`stats` only |
+| `head` (before stats) | Distributable streaming | Indexers | Limit rows before aggregation |
+| `bucket` / `fillnull` | Distributable streaming | Indexers | Time bucketing and null-fill |
+| `makemv` / `nomv` | Distributable streaming | Indexers | MV operations pre-aggregation |
+| `streamstats` | Centralized streaming | Search Head | Sorted input required; pre-filter hard |
+| `eventstats` | Centralized streaming | Search Head | Aggregates then rejoins all rows |
+| `anomalydetection` | Centralized streaming | Search Head | Statistical scoring per event |
+| `stats` / `chart` | Transforming | Search Head | **Split point** — all after is SH-only |
+| `top` / `rare` / `sort` | Transforming | Search Head | Forces all events to SH |
+| `transaction` | Transforming | Search Head | Memory-hungry; avoid at scale |
+| `join` | Transforming | Search Head | Nested search + in-memory join |
+| `dedup` | Transforming | Search Head | Requires full sort |
+| `tstats prestats=true` | Partially distributable | Indexers→SH | Partial sums pushed to indexers |
+| `map` | Orchestrating | Search Head | Parallel child searches |
+| `append` / `union` | Orchestrating | Search Head | Each leg internally distributable |
+| `inputlookup` / `rest` | Dataset | Search Head | External data, always on SH |
+
+> See [Module 10 — Streaming & Distributable Commands](./10-streaming-and-distributable-commands.md) for full patterns per attack stage.
+
+---
+
+[← Advanced Detection Engineering](./08-advanced-detection-engineering.md) | [Module 10: Streaming & Distributable →](./10-streaming-and-distributable-commands.md) | [← Back to Index](./README.md)
