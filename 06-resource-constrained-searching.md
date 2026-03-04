@@ -1,5 +1,5 @@
 # Module 06 — Resource-Constrained Searching
-## RAM Pressure, CPU Throttling, Network-Limited Searches
+## RAM Pressure, CPU Throttling, Network-Limited Searches & Distributable Offloading
 
 ---
 
@@ -459,6 +459,56 @@ index=wineventlog EventCode=4624 earliest=-1h
 | sort -runDuration
 | head 20
 ```
+
+---
+
+## 6.10 Distributable Offloading — Shifting SH Burden to Indexers
+
+Under resource constraints the most impactful change is ensuring every pipeline pushes as much work as possible to indexers via distributable commands. This directly reduces search head RAM, CPU, and WAN transfer.
+
+### Resource Savings by Command Substitution
+
+```
+RESOURCE IMPACT OF DISTRIBUTABLE SUBSTITUTIONS:
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+Operation              SH RAM saved    SH CPU saved    Network saved
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+Move where before stats    Up to 90%       Up to 70%       Up to 90%
+Move eval before stats     ~30%            ~40%            ~20%
+fields trim on indexers    Up to 80%       ~50%            Up to 80%
+CSV lookup on indexers     ~20%            ~60%            ~20%
+tstats prestats vs stats   Up to 95%       Up to 90%       Up to 95%
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+```
+
+```splunk
+| Comment "Resource-constrained environment: apply all distributable optimizations"
+| Comment "Goal: SH receives the smallest possible dataset"
+
+index=corelight sourcetype=bro_conn earliest=-1h
+
+| Comment "--- INDEXER (distributable) — zero SH involvement ---"
+| eval is_internal = if(
+    cidrmatch("10.0.0.0/8", id.resp_h)
+    OR cidrmatch("172.16.0.0/12", id.resp_h)
+    OR cidrmatch("192.168.0.0/16", id.resp_h), 1, 0)
+| where is_internal=0 AND bytes_sent > 10000
+| lookup asset_inventory.csv id.orig_h OUTPUT asset_type src_criticality
+| lookup threat_intel_ips.csv id.resp_h OUTPUT is_known_bad
+| where src_criticality IN ("tier0","tier1") OR is_known_bad="true"
+| eval mb_sent = round(bytes_sent / 1048576, 2)
+| fields _time id.orig_h id.resp_h id.resp_p asset_type mb_sent is_known_bad
+
+| Comment "--- SEARCH HEAD (non-distributable) — tiny dataset by this point ---"
+| stats sum(mb_sent) as total_mb
+        dc(id.resp_h) as unique_dests
+        count as connections
+        by id.orig_h asset_type is_known_bad
+| where total_mb > 100 OR is_known_bad="true"
+| sort -total_mb
+```
+
+> For the full distributable command taxonomy and per-attack-stage patterns, see [Module 10 — Streaming & Distributable Commands](./10-streaming-and-distributable-commands.md).
 
 ---
 
